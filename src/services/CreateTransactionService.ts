@@ -1,30 +1,54 @@
+import { getRepository, getCustomRepository } from 'typeorm';
+
+import AppError from '../errors/AppError';
+
 import TransactionsRepository from '../repositories/TransactionsRepository';
+
 import Transaction from '../models/Transaction';
+import Category from '../models/Category';
 
 interface Request {
   title: string;
   value: number;
-  type: 'income' | 'outcome';
+  type: string;
+  category: string;
 }
 
 class CreateTransactionService {
-  private transactionsRepository: TransactionsRepository;
+  public async execute({
+    title,
+    value,
+    type,
+    category,
+  }: Request): Promise<Transaction> {
+    const categoryRepository = getRepository(Category);
+    const transactionRepository = getCustomRepository(TransactionsRepository);
 
-  constructor(transactionsRepository: TransactionsRepository) {
-    this.transactionsRepository = transactionsRepository;
-  }
+    const { total } = await transactionRepository.getBalance();
 
-  public execute({ title, value, type }: Request): Transaction {
-    const balance = this.transactionsRepository.getBalance();
+    if (type === 'outcome' && value > total) {
+      throw new AppError('Insufficient Fund');
+    }
 
-    if (type === 'outcome' && balance.total - value < 0)
-      throw Error('This appointment is already broked!');
+    let categoryFind = await categoryRepository.findOne({
+      where: { title: category },
+    });
 
-    const transaction = this.transactionsRepository.create({
+    if (!categoryFind) {
+      categoryFind = categoryRepository.create({ title: category });
+
+      await categoryRepository.save(categoryFind);
+    }
+
+    const transaction = transactionRepository.create({
       title,
       value,
       type,
+      category_id: categoryFind.id,
     });
+
+    await transactionRepository.save(transaction);
+
     return transaction;
   }
 }
